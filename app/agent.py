@@ -1,6 +1,7 @@
 from typing import Any, Dict, List
 
 from app.data.claims import get_claim
+from app.handoff import create_human_handoff
 from app.models import TriageOutput
 from app.safety import validate_safety
 from app.tools.history import check_claim_history
@@ -18,14 +19,13 @@ def triage_claim(claim_id: str) -> Dict[str, Any]:
 
     This is an offline training baseline, not a production decision system.
     It uses the two synthetic tools and simple rules. Results are schema- and
-    safety-validated before returning. It never makes a final claim, payment,
-    or fraud determination.
+    safety-validated before a human handoff task is created. It never makes a
+    final claim, payment, or fraud determination.
     """
     claim = get_claim(claim_id)
     if claim is None:
         raise ValueError(f"Claim {claim_id} not found in synthetic dataset.")
 
-    # Both required tools are called for each known claim.
     policy = check_policy_coverage(claim_id)
     history = check_claim_history(claim_id)
 
@@ -58,15 +58,7 @@ def triage_claim(claim_id: str) -> Dict[str, Any]:
         else "No elevated synthetic claim-history indicator identified; this is not a fraud determination."
     )
 
-    # Tool errors, high urgency, fraud signals, or missing documents do not
-    # remove human oversight; they require it.
-    human_review_required = bool(
-        urgency == "HIGH"
-        or fraud_flag
-        or missing_documents
-        or not policy.get("success")
-        or not history.get("success")
-    )
+    human_review_required = True
 
     output = TriageOutput.model_validate(
         {
@@ -80,9 +72,18 @@ def triage_claim(claim_id: str) -> Dict[str, Any]:
         }
     )
     safe_output = validate_safety(output.model_dump())
+    handoff = create_human_handoff(
+        claim_id=claim_id,
+        urgency=urgency,
+        missing_documents=missing_documents,
+        fraud_flag=fraud_flag,
+        fraud_rationale=fraud_rationale,
+        trace_id=f"TRACE-{claim_id}",
+    )
 
     return {
         **safe_output,
+        "human_handoff": handoff,
         "tool_results": {
             "policy_coverage": policy,
             "claim_history": history,
