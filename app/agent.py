@@ -1,6 +1,7 @@
 from typing import Any, Dict, List
 
 from app.data.claims import get_claim
+from app.models import TriageOutput
 from app.tools.history import check_claim_history
 from app.tools.policy import check_policy_coverage
 
@@ -15,9 +16,9 @@ def triage_claim(claim_id: str) -> Dict[str, Any]:
     """Produce a basic, deterministic triage assessment for a synthetic claim.
 
     This is an offline training baseline, not a production decision system.
-    It uses the two synthetic tools and simple rules so orchestration can be
-    exercised before model integration and strict schema validation are added.
-    It never approves, denies, or authorizes payment for a claim.
+    It uses the two synthetic tools and simple rules. Results are validated
+    against TriageOutput before being returned. It never approves, denies,
+    or authorizes payment for a claim.
     """
     claim = get_claim(claim_id)
     if claim is None:
@@ -56,7 +57,8 @@ def triage_claim(claim_id: str) -> Dict[str, Any]:
         else "No elevated synthetic claim-history indicator identified; this is not a fraud determination."
     )
 
-    # A failed tool lookup must not reduce the need for human attention.
+    # Tool errors, high urgency, fraud signals, or missing documents do not
+    # remove human oversight; they require it.
     human_review_required = bool(
         urgency == "HIGH"
         or fraud_flag
@@ -65,14 +67,20 @@ def triage_claim(claim_id: str) -> Dict[str, Any]:
         or not history.get("success")
     )
 
+    output = TriageOutput.model_validate(
+        {
+            "claim_id": claim_id,
+            "claim_type": claim_type,
+            "urgency": urgency,
+            "missing_documents": missing_documents,
+            "fraud_flag": fraud_flag,
+            "fraud_rationale": fraud_rationale,
+            "human_review_required": human_review_required,
+        }
+    )
+
     return {
-        "claim_id": claim_id,
-        "claim_type": claim_type,
-        "urgency": urgency,
-        "missing_documents": missing_documents,
-        "fraud_flag": fraud_flag,
-        "fraud_rationale": fraud_rationale,
-        "human_review_required": human_review_required,
+        **output.model_dump(),
         "tool_results": {
             "policy_coverage": policy,
             "claim_history": history,
