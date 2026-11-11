@@ -2,6 +2,7 @@ from typing import Any, Dict, List
 
 from app.data.claims import get_claim
 from app.models import TriageOutput
+from app.safety import validate_safety
 from app.tools.history import check_claim_history
 from app.tools.policy import check_policy_coverage
 
@@ -16,9 +17,9 @@ def triage_claim(claim_id: str) -> Dict[str, Any]:
     """Produce a basic, deterministic triage assessment for a synthetic claim.
 
     This is an offline training baseline, not a production decision system.
-    It uses the two synthetic tools and simple rules. Results are validated
-    against TriageOutput before being returned. It never approves, denies,
-    or authorizes payment for a claim.
+    It uses the two synthetic tools and simple rules. Results are schema- and
+    safety-validated before returning. It never makes a final claim, payment,
+    or fraud determination.
     """
     claim = get_claim(claim_id)
     if claim is None:
@@ -78,9 +79,10 @@ def triage_claim(claim_id: str) -> Dict[str, Any]:
             "human_review_required": human_review_required,
         }
     )
+    safe_output = validate_safety(output.model_dump())
 
     return {
-        **output.model_dump(),
+        **safe_output,
         "tool_results": {
             "policy_coverage": policy,
             "claim_history": history,
