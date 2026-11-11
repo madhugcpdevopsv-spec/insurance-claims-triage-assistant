@@ -1,1 +1,1 @@
-"""Policy coverage tool package."""
+"""Claim history tool package."""
